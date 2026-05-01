@@ -74,7 +74,7 @@ function App() {
             <Route path="/checkout" element={<CheckoutPage />} />
             <Route path="/wishlist" element={<WishlistPage />} />
             <Route path="/category/:cat" element={<ShopPageWrapper />} />
-            <Route path="/admin" element={<AdminPanel />} />
+            <Route path="/x9k2-dashboard" element={<AdminPanel />} />
             <Route path="/login" element={<LoginPage />} />
           </Routes>
         </main>

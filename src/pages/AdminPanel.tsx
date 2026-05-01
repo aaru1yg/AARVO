@@ -43,7 +43,7 @@ export default function AdminPanel() {
   }, []);
 
   const handleLogin = () => {
-    if (password === 'aaru@admin123') setIsAdmin(true);
+    if (password === 'Aaru@9k2#2026!') setIsAdmin(true);
     else alert('Wrong password!');
   };
 
