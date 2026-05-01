@@ -15,6 +15,7 @@ import ShopPage from './pages/ShopPage';
 import CheckoutPage from './pages/CheckoutPage';
 import WishlistPage from './pages/WishlistPage';
 import AdminPanel from './pages/AdminPanel';
+import LoginPage from './pages/LoginPage';
 
 const ScrollToTop = () => {
   const { pathname } = useLocation();
@@ -74,6 +75,7 @@ function App() {
             <Route path="/wishlist" element={<WishlistPage />} />
             <Route path="/category/:cat" element={<ShopPageWrapper />} />
             <Route path="/admin" element={<AdminPanel />} />
+            <Route path="/login" element={<LoginPage />} />
           </Routes>
         </main>
         <Footer />
