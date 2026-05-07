@@ -1,12 +1,9 @@
-'use client';
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useStore } from '../store/useStore';
 import { db } from '../lib/firebase';
 import { ref, onValue, push, update, remove } from 'firebase/database';
-import { Plus, Trash2, Edit3, LayoutDashboard, Package, ShoppingCart as OrderIcon, Shield } from 'lucide-react';
-
-const ADMIN_EMAIL = 'muslim103531@gmail.com';
+import { Plus, Trash2, Edit3, LayoutDashboard, Package, ShoppingCart as OrderIcon, Shield, Star } from 'lucide-react';
 
 const BADGES = [
   { id: 'hot', label: 'HOT', color: 'bg-red-500' },
@@ -19,7 +16,7 @@ const BADGES = [
 const emptyForm = {
   name: '', price: '', originalPrice: '',
   category: 'gadgets', description: '',
-  image: '', stock: '', badge: '',
+  stock: '', badge: '',
   cod: false, freeDelivery: false, deliveryCharge: '99',
 };
 
@@ -32,13 +29,25 @@ export default function AdminPanel() {
   const [form, setForm] = useState(emptyForm);
   const [isAdmin, setIsAdmin] = useState(false);
   const [password, setPassword] = useState('');
+
+  // Images — new files + existing URLs
   const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [existingImages, setExistingImages] = useState<string[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
+
+  // Featured/Deals control
+  const [featuredIds, setFeaturedIds] = useState<string[]>([]);
+  const [dealId, setDealId] = useState<string>('');
 
   useEffect(() => {
     onValue(ref(db, 'orders'), (snap) => {
       const data = snap.val();
       setOrders(data ? Object.entries(data).map(([id, val]: any) => ({ id, ...val })) : []);
+    });
+    onValue(ref(db, 'settings'), (snap) => {
+      const data = snap.val();
+      if (data?.featuredIds) setFeaturedIds(data.featuredIds);
+      if (data?.dealId) setDealId(data.dealId);
     });
   }, []);
 
@@ -51,12 +60,12 @@ export default function AdminPanel() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('upload_preset', 'unsigned_upload');
-    formData.append('cloud_name', 'dnw1xppms');
     const res = await fetch('https://api.cloudinary.com/v1_1/dnw1xppms/image/upload', {
       method: 'POST',
       body: formData,
     });
     const data = await res.json();
+    if (!data.secure_url) throw new Error('Upload failed');
     return data.secure_url;
   };
 
@@ -64,12 +73,15 @@ export default function AdminPanel() {
     e.preventDefault();
     setUploading(true);
     try {
-      let imageUrls: string[] = [];
+      // Upload new files
+      const newUrls: string[] = [];
       for (const file of imageFiles) {
         const url = await uploadToCloudinary(file);
-        imageUrls.push(url);
+        newUrls.push(url);
       }
-      if (form.image) imageUrls.unshift(form.image);
+
+      // Combine existing + new
+      const allImages = [...existingImages, ...newUrls];
 
       const productData = {
         name: form.name,
@@ -79,8 +91,8 @@ export default function AdminPanel() {
         description: form.description,
         stock: form.stock ? Number(form.stock) : null,
         badge: form.badge || null,
-        image: imageUrls[0] || '',
-        images: imageUrls,
+        image: allImages[0] || '',
+        images: allImages,
         cod: form.cod,
         freeDelivery: form.freeDelivery,
         deliveryCharge: form.freeDelivery ? 0 : Number(form.deliveryCharge || 99),
@@ -95,8 +107,10 @@ export default function AdminPanel() {
         await push(ref(db, 'products'), productData);
         alert('Product added!');
       }
+
       setForm(emptyForm);
       setImageFiles([]);
+      setExistingImages([]);
       setImagePreview([]);
       setActiveTab('products');
     } catch (err: any) {
@@ -109,10 +123,15 @@ export default function AdminPanel() {
     setForm({
       name: p.name, price: p.price, originalPrice: p.originalPrice || '',
       category: p.category, description: p.description || '',
-      image: p.image || '', stock: p.stock || '', badge: p.badge || '',
+      stock: p.stock || '', badge: p.badge || '',
       cod: p.cod || false, freeDelivery: p.freeDelivery || false,
       deliveryCharge: p.deliveryCharge || '99',
     });
+    // Load existing images
+    const imgs = p.images && p.images.length > 0 ? p.images : p.image ? [p.image] : [];
+    setExistingImages(imgs);
+    setImagePreview([]);
+    setImageFiles([]);
     setEditingId(p.id);
     setActiveTab('add');
   };
@@ -126,12 +145,13 @@ export default function AdminPanel() {
     for (const p of products) {
       await update(ref(db, `products/${p.id}`), { cod: enabled });
     }
-    alert(`COD ${enabled ? 'enabled' : 'disabled'} for all products!`);
+    alert(`COD ${enabled ? 'enabled' : 'disabled'} for all!`);
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const remaining = 7 - imageFiles.length;
+    const total = existingImages.length + imageFiles.length;
+    const remaining = 7 - total;
     const toAdd = files.slice(0, remaining);
     setImageFiles(prev => [...prev, ...toAdd]);
     toAdd.forEach(file => {
@@ -141,7 +161,28 @@ export default function AdminPanel() {
     });
   };
 
+  const removeExistingImage = (idx: number) => {
+    setExistingImages(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const removeNewImage = (idx: number) => {
+    setImageFiles(prev => prev.filter((_, i) => i !== idx));
+    setImagePreview(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const saveFeatured = async () => {
+    await update(ref(db, 'settings'), { featuredIds, dealId });
+    alert('Homepage updated!');
+  };
+
+  const toggleFeatured = (id: string) => {
+    setFeaturedIds(prev =>
+      prev.includes(id) ? prev.filter(x => x !== id) : prev.length < 4 ? [...prev, id] : prev
+    );
+  };
+
   const revenue = orders.reduce((s, o) => s + (o.total || 0), 0);
+  const totalImages = existingImages.length + imageFiles.length;
 
   if (!isAdmin) {
     return (
@@ -175,6 +216,7 @@ export default function AdminPanel() {
               { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
               { id: 'products', label: 'Products', icon: <Package size={18} /> },
               { id: 'add', label: editingId ? 'Edit Product' : 'Add Product', icon: <Plus size={18} /> },
+              { id: 'homepage', label: 'Homepage', icon: <Star size={18} /> },
               { id: 'orders', label: 'Orders', icon: <OrderIcon size={18} /> },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
@@ -186,7 +228,6 @@ export default function AdminPanel() {
             ))}
           </aside>
 
-          {/* Main Content */}
           <main className="flex-1">
             <div className="bg-white rounded-[2.5rem] shadow-sm border border-gray-100 p-8 md:p-12">
 
@@ -206,8 +247,6 @@ export default function AdminPanel() {
                       </div>
                     ))}
                   </div>
-
-                  {/* Global COD */}
                   <div className="bg-gray-50 rounded-2xl p-6 flex items-center justify-between">
                     <div>
                       <p className="font-black">Cash on Delivery — All Products</p>
@@ -227,12 +266,12 @@ export default function AdminPanel() {
                 </div>
               )}
 
-              {/* Products List */}
+              {/* Products */}
               {activeTab === 'products' && (
                 <div>
                   <div className="flex justify-between items-center mb-8">
                     <h3 className="text-3xl font-black">Products</h3>
-                    <button onClick={() => { setForm(emptyForm); setEditingId(null); setActiveTab('add'); }}
+                    <button onClick={() => { setForm(emptyForm); setEditingId(null); setExistingImages([]); setImageFiles([]); setImagePreview([]); setActiveTab('add'); }}
                       className="bg-black text-white px-6 py-3 rounded-full font-bold flex items-center gap-2 hover:bg-gray-800 transition">
                       <Plus size={18} /> Add Product
                     </button>
@@ -250,14 +289,17 @@ export default function AdminPanel() {
                       </thead>
                       <tbody className="divide-y divide-gray-50">
                         {products.map(p => (
-                          <tr key={p.id} className="group hover:bg-gray-50/50 transition-colors">
+                          <tr key={p.id} className="group hover:bg-gray-50/50">
                             <td className="py-4">
                               <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden">
-                                  {p.image && <img src={p.image} className="w-full h-full object-cover" />}
+                                <div className="w-12 h-12 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                                  {p.image
+                                    ? <img src={p.image} className="w-full h-full object-cover" key={p.image} />
+                                    : <div className="w-full h-full flex items-center justify-center text-gray-400 text-xs">No img</div>
+                                  }
                                 </div>
                                 <div>
-                                  <p className="font-bold">{p.name}</p>
+                                  <p className="font-bold text-sm">{p.name}</p>
                                   <p className="text-xs text-gray-400 capitalize">{p.category}</p>
                                 </div>
                               </div>
@@ -366,7 +408,7 @@ export default function AdminPanel() {
                       className="w-full px-4 py-3 rounded-2xl border border-gray-200 focus:outline-none focus:border-black resize-none" />
                   </div>
 
-                  {/* Delivery Settings */}
+                  {/* Delivery */}
                   <div className="bg-gray-50 rounded-2xl p-5 flex flex-col gap-3">
                     <p className="font-black">Delivery Settings</p>
                     <label className="flex items-center gap-3 cursor-pointer">
@@ -386,7 +428,7 @@ export default function AdminPanel() {
                     )}
                   </div>
 
-                  {/* COD Toggle */}
+                  {/* COD */}
                   <div className="bg-gray-50 rounded-2xl p-5">
                     <label className="flex items-center gap-3 cursor-pointer">
                       <input type="checkbox" checked={form.cod}
@@ -399,51 +441,138 @@ export default function AdminPanel() {
                     </label>
                   </div>
 
-                  {/* Images — up to 7 */}
+                  {/* Images */}
                   <div>
                     <label className="text-sm font-bold text-gray-400 mb-2 block">
-                      Product Photos (up to 7)
+                      Product Photos (up to 7) — {totalImages}/7
                     </label>
-                    {imagePreview.length > 0 && (
-                      <div className="flex gap-2 flex-wrap mb-3">
-                        {imagePreview.map((img, idx) => (
-                          <div key={idx} className="relative">
-                            <img src={img} className="w-16 h-16 object-cover rounded-xl" />
-                            {idx === 0 && (
-                              <span className="absolute -top-1 -left-1 bg-black text-white text-xs font-black px-1 rounded">Main</span>
-                            )}
-                            <button type="button"
-                              onClick={() => {
-                                setImageFiles(prev => prev.filter((_, i) => i !== idx));
-                                setImagePreview(prev => prev.filter((_, i) => i !== idx));
-                              }}
-                              className="absolute -top-1 -right-1 bg-red-500 text-white w-5 h-5 rounded-full text-xs font-black flex items-center justify-center">
-                              x
-                            </button>
-                          </div>
-                        ))}
+
+                    {/* Existing Images */}
+                    {existingImages.length > 0 && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-2 font-bold">Current Images:</p>
+                        <div className="flex gap-2 flex-wrap mb-3">
+                          {existingImages.map((img, idx) => (
+                            <div key={idx} className="relative">
+                              <img src={img} className="w-16 h-16 object-cover rounded-xl border-2 border-gray-200" />
+                              {idx === 0 && (
+                                <span className="absolute -top-1 -left-1 bg-black text-white text-xs font-black px-1 rounded">Main</span>
+                              )}
+                              <button type="button" onClick={() => removeExistingImage(idx)}
+                                className="absolute -top-1 -right-1 bg-red-500 text-white w-5 h-5 rounded-full text-xs font-black flex items-center justify-center">
+                                x
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
-                    {imageFiles.length < 7 && (
+
+                    {/* New Images Preview */}
+                    {imagePreview.length > 0 && (
+                      <div>
+                        <p className="text-xs text-gray-400 mb-2 font-bold">New Images:</p>
+                        <div className="flex gap-2 flex-wrap mb-3">
+                          {imagePreview.map((img, idx) => (
+                            <div key={idx} className="relative">
+                              <img src={img} className="w-16 h-16 object-cover rounded-xl border-2 border-green-300" />
+                              <button type="button" onClick={() => removeNewImage(idx)}
+                                className="absolute -top-1 -right-1 bg-red-500 text-white w-5 h-5 rounded-full text-xs font-black flex items-center justify-center">
+                                x
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {totalImages < 7 && (
                       <input type="file" accept="image/*" multiple onChange={handleImageChange}
                         className="w-full px-4 py-3 rounded-2xl border border-gray-200 text-sm text-gray-500" />
                     )}
-                    <p className="text-xs mt-1 text-gray-400">{imageFiles.length}/7 photos. First is main photo.</p>
+                    <p className="text-xs mt-1 text-gray-400">First image is the main/thumbnail image.</p>
                   </div>
 
                   <button type="submit" disabled={uploading}
                     className="w-full bg-black text-white font-black py-4 rounded-full hover:bg-gray-800 transition disabled:opacity-50">
-                    {uploading ? 'Saving...' : editingId ? 'Update Product' : 'Add Product'}
+                    {uploading ? 'Uploading images...' : editingId ? 'Update Product' : 'Add Product'}
                   </button>
 
                   {editingId && (
                     <button type="button"
-                      onClick={() => { setEditingId(null); setForm(emptyForm); setActiveTab('products'); }}
+                      onClick={() => { setEditingId(null); setForm(emptyForm); setExistingImages([]); setImageFiles([]); setImagePreview([]); setActiveTab('products'); }}
                       className="w-full border border-gray-200 text-gray-500 font-bold py-3 rounded-full hover:border-black transition">
                       Cancel Edit
                     </button>
                   )}
                 </form>
+              )}
+
+              {/* Homepage Control */}
+              {activeTab === 'homepage' && (
+                <div>
+                  <h3 className="text-3xl font-black mb-2">Homepage Control</h3>
+                  <p className="text-gray-400 mb-8 text-sm">Select which products show on homepage</p>
+
+                  {/* Deal Product */}
+                  <div className="mb-8">
+                    <h4 className="font-black mb-3">Flash Deal Product (Deals Section)</h4>
+                    <p className="text-xs text-gray-400 mb-3">Select 1 product to show in the deals banner</p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {products.map(p => (
+                        <label key={p.id} className={`flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer transition ${
+                          dealId === p.id ? 'border-black bg-gray-50' : 'border-gray-100 hover:border-gray-300'
+                        }`}>
+                          <input type="radio" name="deal" checked={dealId === p.id}
+                            onChange={() => setDealId(p.id)}
+                            className="accent-black" />
+                          <div className="w-10 h-10 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                            {p.image && <img src={p.image} className="w-full h-full object-cover" />}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-bold text-sm">{p.name}</p>
+                            <p className="text-xs text-gray-400">₹{p.price}</p>
+                          </div>
+                          {dealId === p.id && <span className="text-xs bg-black text-white px-2 py-1 rounded-full font-bold">DEAL</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Featured Products */}
+                  <div className="mb-8">
+                    <h4 className="font-black mb-3">Featured Products (Homepage Grid)</h4>
+                    <p className="text-xs text-gray-400 mb-3">Select up to 4 products to feature on homepage</p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {products.map(p => (
+                        <label key={p.id} className={`flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer transition ${
+                          featuredIds.includes(p.id) ? 'border-black bg-gray-50' : 'border-gray-100 hover:border-gray-300'
+                        }`}>
+                          <input type="checkbox" checked={featuredIds.includes(p.id)}
+                            onChange={() => toggleFeatured(p.id)}
+                            className="accent-black" />
+                          <div className="w-10 h-10 bg-gray-100 rounded-lg overflow-hidden flex-shrink-0">
+                            {p.image && <img src={p.image} className="w-full h-full object-cover" />}
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-bold text-sm">{p.name}</p>
+                            <p className="text-xs text-gray-400">₹{p.price}</p>
+                          </div>
+                          {featuredIds.includes(p.id) && (
+                            <span className="text-xs bg-black text-white px-2 py-1 rounded-full font-bold">
+                              #{featuredIds.indexOf(p.id) + 1}
+                            </span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button onClick={saveFeatured}
+                    className="w-full bg-black text-white font-black py-4 rounded-full hover:bg-gray-800 transition">
+                    Save Homepage Settings
+                  </button>
+                </div>
               )}
 
               {/* Orders */}
@@ -454,7 +583,7 @@ export default function AdminPanel() {
                     <div className="text-center py-20 text-gray-400">No orders yet</div>
                   ) : (
                     <div className="flex flex-col gap-4">
-                      {orders.map((order, i) => (
+                      {orders.map((order) => (
                         <div key={order.id} className="border border-gray-100 rounded-2xl p-6">
                           <div className="flex items-start justify-between mb-4">
                             <div>
