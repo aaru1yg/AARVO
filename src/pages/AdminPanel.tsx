@@ -375,6 +375,7 @@ export default function AdminPanel() {
                       <option value="general">General</option>
                       <option value="watches">Watches</option>
                       <option value="accessories">Accessories</option>
+                      <option value="books">Stationary</option>
                     </select>
                   </div>
 
